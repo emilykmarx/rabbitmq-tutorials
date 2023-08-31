@@ -44,6 +44,7 @@ func main() {
 
 	body := bodyFromArgs()
 	err = ch.PublishWithContext(ctx,
+		// Logstash expects exchange to have this name
 		"logs", // exchange
 		"",     // routing key
 		false,  // mandatory
@@ -59,13 +60,28 @@ func main() {
 
 func bodyFromArgs() []byte {
 	msg_arg := flag.String("msg", "hello", "Message string (default hello)")
+	json_arg := flag.Bool("json", false, `Whether message string is json.
+																				Will be unnested, all fields assumed string`)
 	slow_arg := flag.Bool("slow", false, "Whether to process this message slowly")
 	flag.Parse()
 
 	body := map[string]interface{}{
-		"msg":  *msg_arg,
 		"slow": *slow_arg,
 	}
+
+	if *json_arg {
+		var msg_json map[string]string
+		err := json.Unmarshal([]byte(*msg_arg), &msg_json)
+		if err != nil {
+			failOnError(err, "could not unmarshal json msg string")
+		}
+		for k, v := range msg_json {
+			body[k] = v
+		}
+	} else {
+		body["msg"] = *msg_arg
+	}
+
 	body_arr, err := json.Marshal(body)
 	if err != nil {
 		failOnError(err, "could not marshal json")
