@@ -17,7 +17,7 @@ func failOnError(err error, msg string) {
 }
 
 /*
- * Makes a fanout exchange called "logs", publishes json message to it with fields given by args.
+ * Makes a queue, publishes json message to it with fields given by args.
  */
 func main() {
 	conn, err := amqp.Dial("amqp://guest:guest@localhost:5672/")
@@ -28,25 +28,24 @@ func main() {
 	failOnError(err, "Failed to open a channel")
 	defer ch.Close()
 
-	err = ch.ExchangeDeclare(
-		"logs",   // name
-		"fanout", // type
-		true,     // durable
-		false,    // auto-deleted
-		false,    // internal
-		false,    // no-wait
-		nil,      // arguments
+	q, err := ch.QueueDeclare(
+		// Match logstash plugin
+		"logstash", // name
+		false,      // durable
+		false,      // delete when unused
+		false,      // exclusive
+		false,      // no-wait
+		nil,        // arguments
 	)
-	failOnError(err, "Failed to declare an exchange")
+	failOnError(err, "Failed to declare a queue")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	body := bodyFromArgs()
 	err = ch.PublishWithContext(ctx,
-		// Logstash expects exchange to have this name
-		"logs", // exchange
-		"",     // routing key
+		"",     // exchange
+		q.Name, // routing key
 		false,  // mandatory
 		false,  // immediate
 		amqp.Publishing{
@@ -59,11 +58,15 @@ func main() {
 }
 
 func bodyFromArgs() []byte {
+	exch_only_arg := flag.Bool("exch-only", false, "Don't send a message, just create the exchange")
 	msg_arg := flag.String("msg", "hello", "Message string (default hello)")
 	json_arg := flag.Bool("json", false, `Whether message string is json.
 																				Will be unnested, all fields assumed string`)
 	slow_arg := flag.Bool("slow", false, "Whether to process this message slowly")
 	flag.Parse()
+	if *exch_only_arg {
+		return nil
+	}
 
 	body := map[string]interface{}{
 		"slow": *slow_arg,
